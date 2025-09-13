@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include=".\app\RemoteCli.cpp" />
+    <ClCompile Include=".\app\CrDebugString.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include=".\app\CRSDK\CameraRemote_SDK.h" />
+    <ClInclude Include=".\app\CRSDK\CrCommandData.h" />
+    <ClInclude Include=".\app\CRSDK\CrDefines.h" />
+    <ClInclude Include=".\app\CRSDK\CrDeviceProperty.h" />
+    <ClInclude Include=".\app\CRSDK\CrError.h" />
+    <ClInclude Include=".\app\CRSDK\CrImageDataBlock.h" />
+    <ClInclude Include=".\app\CRSDK\CrTypes.h" />
+    <ClInclude Include=".\app\CRSDK\ICrCameraObjectInfo.h" />
+    <ClInclude Include=".\app\CRSDK\IDeviceCallback.h" />
+    <ClInclude Include="app\RemoteCli.h" />
+  </ItemGroup>
+</Project>

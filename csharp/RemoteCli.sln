@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35222.181
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RemoteCli", "RemoteCli\RemoteCli.vcxproj", "{F9B7463C-2B26-3B9A-93DA-F281AD7C78A4}"
+	ProjectSection(ProjectDependencies) = postProject
+		{519ABDB8-E20E-4BEB-9621-C303E1745506} = {519ABDB8-E20E-4BEB-9621-C303E1745506}
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "appPtz2", "appPtz2\appPtz2.csproj", "{519ABDB8-E20E-4BEB-9621-C303E1745506}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F9B7463C-2B26-3B9A-93DA-F281AD7C78A4}.Debug|x64.ActiveCfg = Debug|x64
+		{F9B7463C-2B26-3B9A-93DA-F281AD7C78A4}.Debug|x64.Build.0 = Debug|x64
+		{F9B7463C-2B26-3B9A-93DA-F281AD7C78A4}.Release|x64.ActiveCfg = Release|x64
+		{F9B7463C-2B26-3B9A-93DA-F281AD7C78A4}.Release|x64.Build.0 = Release|x64
+		{519ABDB8-E20E-4BEB-9621-C303E1745506}.Debug|x64.ActiveCfg = Debug|x64
+		{519ABDB8-E20E-4BEB-9621-C303E1745506}.Debug|x64.Build.0 = Debug|x64
+		{519ABDB8-E20E-4BEB-9621-C303E1745506}.Release|x64.ActiveCfg = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {122920A3-C546-3549-9056-91F8D80662E4}
+	EndGlobalSection
+EndGlobal
