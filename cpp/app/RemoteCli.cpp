@@ -613,7 +613,7 @@ int main(void)
 
 		    if(args.size() >= 4) {
 			    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-				try{ data = _stoll(args[3]); } catch(const std::exception&) GotoError("", 0);
+				try{ data = _stoll(args[3]); } catch(const std::exception&) {continue;}
 
 			    err = SCRSDK::SendCommand(m_device_handle, code, (SCRSDK::CrCommandParam)data);
 			    if(err) GotoError("", err);

@@ -356,7 +356,8 @@ int RemoteCli_disconnect(void)
         std::future<void> eventFuture = eventPromise.get_future();
         setEventPromise(&eventPromise);
         SCRSDK::Disconnect(m_device_handle);
-        eventFuture.wait_for(std::chrono::milliseconds(3000));
+        std::future_status status = eventFuture.wait_for(std::chrono::milliseconds(3000));
+        if(status != std::future_status::ready) PrintError("timeout",0);
     }
     if(m_device_handle) SCRSDK::ReleaseDevice(m_device_handle);
     SCRSDK::Release();
@@ -364,6 +365,7 @@ int RemoteCli_disconnect(void)
     m_disconnect_req = false;
     m_connected = false;
     m_device_handle = 0;
+    fprintf(stderr, "xxx\n");
     return 0;
 }
 
@@ -385,7 +387,7 @@ int sendCommand(char* inputLine)
     std::vector<std::string> args = _split(inputLine, ' ');
     if(args.size() < 2) GotoError("invalid", 0);
 
-    CrCommandIdCode(args[0]);
+    code = CrCommandIdCode(args[0]);
     if(code < 0) return -1;
     try{ data = stoi(args[1]); } catch(const std::exception&) GotoError("", 0);
 

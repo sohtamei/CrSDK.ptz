@@ -134,6 +134,7 @@
             this.liveview.Location = new System.Drawing.Point(365, 12);
             this.liveview.Name = "liveview";
             this.liveview.Size = new System.Drawing.Size(852, 604);
+            this.liveview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.liveview.TabIndex = 11;
             this.liveview.TabStop = false;
             // 
@@ -177,7 +178,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1229, 628);
+            this.ClientSize = new System.Drawing.Size(1233, 628);
             this.Controls.Add(this.command);
             this.Controls.Add(this.txtCommand);
             this.Controls.Add(this.setPreset);

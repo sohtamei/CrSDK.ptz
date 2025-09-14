@@ -7,9 +7,11 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Timers;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using SharpDX.DirectInput;  
 
 namespace appPtz2
 {
@@ -24,11 +26,20 @@ namespace appPtz2
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
         public static extern void RegisterLiveviewCb(LiveviewCbDelegate liveviewCb);
 
+        const int SPEED_MAX = 50; // 127;
 
         private static Form1 _instance;
 
         private static LiveviewCbDelegate liveviewCb = new LiveviewCbDelegate(OnLiveviewCb);
 
+        private static System.Timers.Timer timer;
+
+        private static DirectInput directInput = new DirectInput();
+        private static Joystick joystick = null;
+        private static int[] xyOffset;
+        private static int[] xyLast = new int[4];
+        private static bool[] buttonLast = new bool[12];
+        private static int povLast = 0;
 
         public Form1()
         {
@@ -36,6 +47,27 @@ namespace appPtz2
             _instance = this;
 
             RegisterLiveviewCb(liveviewCb);
+
+            var joystickGuid = Guid.Empty;
+            foreach (var deviceInstance in directInput.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly))
+            {
+                joystickGuid = deviceInstance.InstanceGuid;
+                break;
+            }
+
+            if (joystickGuid == Guid.Empty)
+            {
+                Console.WriteLine("ゲームパッドが見つかりません");
+            }
+            else
+            {
+                joystick = new Joystick(directInput, joystickGuid);
+                joystick.Acquire();
+            }
+
+            timer = new System.Timers.Timer(50);
+            timer.Elapsed += OnTimedEvent;
+            timer.AutoReset = true;
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -46,9 +78,17 @@ namespace appPtz2
             disconnect.Enabled = false;
             connect.Enabled = false;
             int data = RemoteCli_connect(txtConnect.Text);
-            if(data == 0) {
+            if (data == 0) {
                 disconnect.Enabled = true;
-            } else
+
+                if (joystick != null) {
+                    joystick.Poll();
+                    var state = joystick.GetCurrentState();
+                    xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
+                    timer.Enabled = true;
+                }
+            }
+            else
             {
                 connect.Enabled = true;
             }
@@ -59,6 +99,7 @@ namespace appPtz2
 
         private void disconnect_Click(object sender, EventArgs e)
         {
+            timer.Enabled = false;
             disconnect.Enabled = false;
             liveview.Image = null;
             int ret = RemoteCli_disconnect();
@@ -147,7 +188,6 @@ namespace appPtz2
             }
         }
 
-        static int d = 0;
         static void OnLiveviewCb(int eventId)
         {
             if (_instance != null)
@@ -155,6 +195,80 @@ namespace appPtz2
                 // UI スレッドで updateLiveView を呼ぶ
                 _instance.Invoke((MethodInvoker)(() => _instance.updateLiveView()));
             }
+        }
+
+        private static void OnTimedEvent(Object source, ElapsedEventArgs e)
+        {
+            int ret;
+            joystick.Poll();
+            var state = joystick.GetCurrentState();
+
+            // stick
+            int[] xy = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
+            for (int i = 0; i < 4; i++) { xy[i] -= xyOffset[i];}
+
+            if (Math.Abs(xyLast[2] - xy[2]) > 5000 || Math.Abs(xyLast[3] - xy[3]) > 5000) {
+                int pan = -(int)(xy[2] * SPEED_MAX / 32768.0);
+                pan = Math.Min(SPEED_MAX, Math.Max(-SPEED_MAX, pan));
+
+                int tilt = -(int)(xy[3] * SPEED_MAX / 32768.0);
+                tilt = Math.Min(SPEED_MAX, Math.Max(-SPEED_MAX, tilt));
+
+                string str2 = $"3 0 0 {pan} {tilt}";  // direction
+                Console.WriteLine(str2);
+                controlPTZF(str2);
+            } else if(Math.Abs(xyLast[1] - xy[1]) > 5000)
+            {
+                int zoom = -xy[1];
+                zoom = Math.Min(32767, Math.Max(-32767, zoom));
+
+                setDeviceProperty("ZoomOperationWithInt16", zoom, false/*blocking*/);
+            }
+            for (int i = 0; i < 4; i++) { xyLast[i] = xy[i]; }
+
+            // button
+            string str = "";
+            for (int i = 0; i < 12; i++)
+            {
+                str += (state.Buttons[i] ? "X" : "_");
+                if (buttonLast[i] == false && state.Buttons[i] == true)
+                {
+                    switch(i)
+                    {
+                        case 0: controlPTZF("4");                               break;
+                        case 1: sendCommand("RemoteKeyMenuButton 1 0");         break;
+                        case 2: sendCommand("RemoteKeyCancelBackButton 1 0");   break;
+                        case 3: sendCommand("RemoteKeySet 1 0");                break;
+                        case 11: sendCommand("RemoteKeyDisplayButton 1 0");     break;
+                    }
+                    break;
+                }
+
+
+            }
+            for (int i = 0; i < 12; i++) { buttonLast[i] = state.Buttons[i]; }
+
+            // POV
+            int pov = state.PointOfViewControllers[0];
+            if (pov >= 0) pov = pov / 4500;
+
+            if(povLast != pov)
+            {
+                switch (pov)
+                {
+                    case 0: sendCommand("RemoteKeyUp 1 0"); break;
+                    case 1: sendCommand("RemoteKeyRightUp 1 0"); break;
+                    case 2: sendCommand("RemoteKeyRight 1 0"); break;
+                    case 3: sendCommand("RemoteKeyRightDown 1 0"); break;
+                    case 4: sendCommand("RemoteKeyDown 1 0"); break;
+                    case 5: sendCommand("RemoteKeyLeftDown 1 0"); break;
+                    case 6: sendCommand("RemoteKeyLeft 1 0"); break;
+                    case 7: sendCommand("RemoteKeyLeftUp 1 0"); break;
+                }
+            }
+            povLast = pov;
+
+            Console.WriteLine($"{xy[0]},{xy[1]},{xy[2]},{xy[3]},{str},{pov}");
         }
     }
 }
