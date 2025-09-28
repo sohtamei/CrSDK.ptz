@@ -70,6 +70,13 @@ void RegisterLiveviewCb(LiveviewCbFunc liveviewCb)
     m_liveviewCb = liveviewCb;
 }
 
+ChangedCbFunc m_changedCb = nullptr;
+void RegisterChangedCb(ChangedCbFunc changedCb)
+{
+    m_changedCb = changedCb;
+}
+
+
 /*
 std::promise<void>* m_lvPromise = nullptr;
 std::mutex m_lvPromiseMutex;
@@ -134,6 +141,47 @@ SCRSDK::CrError _setDeviceProperty(int64_t device_handle, uint32_t code, uint64_
 Error:
     setEventPromise(nullptr);
     return result;
+}
+
+std::vector<int64_t> _getPossible(SCRSDK::CrDeviceProperty* devProp)
+{
+/*
+    CrInt32u GetSetValueSize();
+    CrInt8u* GetSetValues();
+*/
+    SCRSDK::CrDataType dataType = devProp->GetValueType();
+    std::vector<int64_t> possible;
+
+    int dataLen = 1;
+    switch(dataType & 0x100F) {
+    case SCRSDK::CrDataType_UInt8:  dataLen = sizeof(uint8_t); break;
+    case SCRSDK::CrDataType_Int8:   dataLen = sizeof(int8_t); break;
+    case SCRSDK::CrDataType_UInt16: dataLen = sizeof(uint16_t); break;
+    case SCRSDK::CrDataType_Int16:  dataLen = sizeof(int16_t); break;
+    case SCRSDK::CrDataType_UInt32: dataLen = sizeof(uint32_t); break;
+    case SCRSDK::CrDataType_Int32:  dataLen = sizeof(int32_t); break;
+    case SCRSDK::CrDataType_UInt64: dataLen = sizeof(uint64_t); break;
+    default: return possible;
+    }
+
+    unsigned char const* buf = devProp->GetValues();
+    uint32_t nval = devProp->GetValueSize() / dataLen;
+    possible.resize(nval);
+    for (uint32_t i = 0; i < nval; ++i) {
+        int64_t data = 0;
+        switch(dataType & 0x100F) {
+        case SCRSDK::CrDataType_UInt8:  data = (reinterpret_cast<uint8_t const*>(buf))[i]; break;
+        case SCRSDK::CrDataType_Int8:   data = (reinterpret_cast<int8_t const*>(buf))[i]; break;
+        case SCRSDK::CrDataType_UInt16: data = (reinterpret_cast<uint16_t const*>(buf))[i]; break;
+        case SCRSDK::CrDataType_Int16:  data = (reinterpret_cast<int16_t const*>(buf))[i]; break;
+        case SCRSDK::CrDataType_UInt32: data = (reinterpret_cast<uint32_t const*>(buf))[i]; break;
+        case SCRSDK::CrDataType_Int32:  data = (reinterpret_cast<int32_t const*>(buf))[i]; break;
+        case SCRSDK::CrDataType_UInt64: data = (reinterpret_cast<uint64_t const*>(buf))[i]; break;
+        default: break;
+        }
+        possible.at(i) = data;
+    }
+    return possible;
 }
 
 class DeviceCallback : public SCRSDK::IDeviceCallback
@@ -226,6 +274,7 @@ public:
             }
 */
         }
+        if(m_changedCb && !m_disconnect_req) m_changedCb(0);
     }
     
     void OnNotifyMonitorUpdated(CrInt32u type, CrInt32u frameNo)
@@ -377,6 +426,64 @@ int setDeviceProperty(char* code, int64_t data, bool blocking=true)
         return SCRSDK::CrError_Generic_Unknown;
     }
     return _setDeviceProperty(m_device_handle, codeInt, (uint64_t)data, blocking);
+}
+
+int getDeviceProperty(char* code)
+{
+    int32_t codeInt = CrDevicePropertyCode(code);
+    if(codeInt < 0) {
+        PrintError("unknown DP",0);
+        return 0;
+    }
+
+    int data = 0;
+    SCRSDK::CrError err = 0;
+    SCRSDK::CrDeviceProperty devProp;
+    err = _getDeviceProperty(m_device_handle, codeInt, &devProp);
+    if(err) GotoError("", err);
+    data = devProp.GetCurrentValue();
+Error:
+    return data;
+}
+
+int incDeviceProperty(char* code, int incDec, bool blocking=true)
+{
+    int32_t codeInt = CrDevicePropertyCode(code);
+    if(codeInt < 0) {
+        PrintError("unknown DP",0);
+        return 0;
+    }
+
+    int data = 0;
+    SCRSDK::CrError err = 0;
+    SCRSDK::CrDeviceProperty devProp;
+
+    err = _getDeviceProperty(m_device_handle, codeInt, &devProp);
+    if(err) GotoError("", err);
+
+	if(devProp.GetPropertyEnableFlag() != 1) GotoError("not writable",0);
+
+	{
+		std::vector<int64_t> possible = _getPossible(&devProp);
+		for(int i = 0; i < possible.size(); i++) {
+			if(devProp.GetCurrentValue() == possible[i]) {
+				int index = i;
+				if(incDec) index++;
+				else index--;
+				if(index >= 0 && index <= possible.size()-1) {
+					err = _setDeviceProperty(m_device_handle, codeInt, possible[index], blocking);
+				    if(err) GotoError("", err);
+
+					err = _getDeviceProperty(m_device_handle, codeInt, &devProp);
+					if(err) GotoError("", err);
+				    data = devProp.GetCurrentValue();
+				}
+				break;
+			}
+		}
+	}
+Error:
+    return data;
 }
 
 int sendCommand(char* inputLine)

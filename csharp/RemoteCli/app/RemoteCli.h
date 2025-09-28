@@ -17,6 +17,12 @@ extern "C" __declspec(dllexport)
 int setDeviceProperty(char* code, int64_t data, bool blocking);
 
 extern "C" __declspec(dllexport)
+int getDeviceProperty(char* code);
+
+extern "C" __declspec(dllexport)
+int incDeviceProperty(char* code, int incDec, bool blocking);
+
+extern "C" __declspec(dllexport)
 int sendCommand(char* inputLine);
 
 extern "C" __declspec(dllexport)
@@ -35,3 +41,8 @@ typedef void (*LiveviewCbFunc)(int eventId);
 
 extern "C" __declspec(dllexport)
 void RegisterLiveviewCb(LiveviewCbFunc liveviewCb);
+
+typedef void (*ChangedCbFunc)(int eventId);
+
+extern "C" __declspec(dllexport)
+void RegisterChangedCb(ChangedCbFunc ChangedCb);

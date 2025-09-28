@@ -1,17 +1,21 @@
-﻿using System;
+﻿using SharpDX.DirectInput;  
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.Drawing.Text;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Timers;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
 using System.Windows.Forms;
-using SharpDX.DirectInput;  
+using OpenMacroBoard.SDK;
+using StreamDeckSharp;
+
 
 namespace appPtz2
 {
@@ -26,11 +30,19 @@ namespace appPtz2
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
         public static extern void RegisterLiveviewCb(LiveviewCbDelegate liveviewCb);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void ChangedCbDelegate(int eventId);
+
+        [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void RegisterChangedCb(ChangedCbDelegate changedCb);
+
         const int SPEED_MAX = 50; // 127;
 
         private static Form1 _instance;
 
         private static LiveviewCbDelegate liveviewCb = new LiveviewCbDelegate(OnLiveviewCb);
+
+        private static ChangedCbDelegate changedCb = new ChangedCbDelegate(OnChangedCb);
 
         private static System.Timers.Timer timer;
 
@@ -47,6 +59,8 @@ namespace appPtz2
             _instance = this;
 
             RegisterLiveviewCb(liveviewCb);
+
+            RegisterChangedCb(changedCb);
 
             var joystickGuid = Guid.Empty;
             foreach (var deviceInstance in directInput.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly))
@@ -65,6 +79,33 @@ namespace appPtz2
                 joystick.Acquire();
             }
 
+            var buttonLabels = new[] {
+                "","","Assign1","Assign2","Assign3",
+                "","FPS\n23.97","Gain\n0db","Shutter\n1/250","WB\n5600K",
+                "","","Preset1","Preset2","Preset3",
+            };
+
+            var deck = StreamDeck.OpenDevice();
+            deck.SetBrightness(80);
+
+            for (int i = 0; i < deck.Keys.Count && i < buttonLabels.Length; i++)
+            {
+                var bmp = RenderKeyBitmap(buttonLabels[i]);
+                var keyBmp = KeyBitmap.Create.FromBitmap(bmp);
+                deck.SetKeyBitmap(i, keyBmp);
+            }
+
+            deck.KeyStateChanged += (sender, e) =>
+            {
+                Console.WriteLine($"Key {e.Key} {(e.IsDown ? "DOWN" : "UP")}");
+
+                if (e.IsDown)
+                {
+                    // deck.SetKeyBitmap(e.Key, KeyBitmap.Create.FromRgb(255, 255, 255)); など
+                }
+            };
+
+            // gamepadポーリングtimer
             timer = new System.Timers.Timer(50);
             timer.Elapsed += OnTimedEvent;
             timer.AutoReset = true;
@@ -133,6 +174,30 @@ namespace appPtz2
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
+        public extern static int getDeviceProperty([MarshalAs(UnmanagedType.LPStr)] string code);
+
+        private void getDP_Click(object sender, EventArgs e)
+        {
+            int ret = getDeviceProperty(txtCode.Text);
+            txtData.Text = ret.ToString();
+        }
+
+        [DllImport(DLLPath, CharSet = CharSet.Ansi)]
+        public extern static int incDeviceProperty([MarshalAs(UnmanagedType.LPStr)] string code, int incDev, bool blocking);
+
+        private void incDP_Click(object sender, EventArgs e)
+        {
+            int ret = incDeviceProperty(txtCode.Text, 1, true/*blocking*/);
+            txtData.Text = ret.ToString();
+        }
+
+        private void decDP_Click(object sender, EventArgs e)
+        {
+            int ret = incDeviceProperty(txtCode.Text, 0, true/*blocking*/);
+            txtData.Text = ret.ToString();
+        }
+
+        [DllImport(DLLPath, CharSet = CharSet.Ansi)]
         public extern static int sendCommand([MarshalAs(UnmanagedType.LPStr)] string type);
 
         private void command_Click(object sender, EventArgs e)
@@ -196,6 +261,26 @@ namespace appPtz2
                 _instance.Invoke((MethodInvoker)(() => _instance.updateLiveView()));
             }
         }
+
+        private void updateDP()
+        {
+            if (Interlocked.Exchange(ref _running, 1) == 1)
+            {
+                return;
+                Console.WriteLine($"onChanged");
+            }
+        }
+
+        static void OnChangedCb(int eventId)
+        {
+            if (_instance != null)
+            {
+                // UI スレッドで updateDP を呼ぶ
+                _instance.Invoke((MethodInvoker)(() => _instance.updateDP()));
+            }
+            Console.WriteLine($"onChanged");
+        }
+
 
         private static void OnTimedEvent(Object source, ElapsedEventArgs e)
         {
@@ -269,6 +354,23 @@ namespace appPtz2
             povLast = pov;
 
             Console.WriteLine($"{xy[0]},{xy[1]},{xy[2]},{xy[3]},{str},{pov}");
+        }
+
+        public Bitmap RenderKeyBitmap(string text)
+        {
+            const int size = 144;
+
+            var bmp = new Bitmap(size, size);
+            var g = Graphics.FromImage(bmp);
+            g.Clear(Color.FromArgb(30, 30, 30));
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+
+            var font = new Font("Segoe UI", 24, FontStyle.Bold);
+            var brush = new SolidBrush(Color.White);
+            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            g.DrawString(text, font, brush, new RectangleF(0, 0, size, size), sf);
+
+            return bmp;
         }
     }
 }

@@ -10,6 +10,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RemoteCli", "RemoteCli\Remo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "appPtz2", "appPtz2\appPtz2.csproj", "{519ABDB8-E20E-4BEB-9621-C303E1745506}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "testCLI", "testCLI\testCLI.csproj", "{6CC63A9C-F38C-438A-AD86-98694829C9B7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -23,6 +25,10 @@ Global
 		{519ABDB8-E20E-4BEB-9621-C303E1745506}.Debug|x64.ActiveCfg = Debug|x64
 		{519ABDB8-E20E-4BEB-9621-C303E1745506}.Debug|x64.Build.0 = Debug|x64
 		{519ABDB8-E20E-4BEB-9621-C303E1745506}.Release|x64.ActiveCfg = Release|x64
+		{6CC63A9C-F38C-438A-AD86-98694829C9B7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6CC63A9C-F38C-438A-AD86-98694829C9B7}.Debug|x64.Build.0 = Debug|Any CPU
+		{6CC63A9C-F38C-438A-AD86-98694829C9B7}.Release|x64.ActiveCfg = Release|Any CPU
+		{6CC63A9C-F38C-438A-AD86-98694829C9B7}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
