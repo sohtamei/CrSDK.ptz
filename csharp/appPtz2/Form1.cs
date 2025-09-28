@@ -21,8 +21,13 @@ namespace appPtz2
 {
     public partial class Form1 : Form
     {
-        const string DLLPath = "RemoteCli.dll";
+        class DPConv
+        {
+            public int index { get; set; }
+            public string str { get; set; }
+        }
 
+        const string DLLPath = "RemoteCli.dll";
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LiveviewCbDelegate(int eventId);
@@ -53,6 +58,25 @@ namespace appPtz2
         private static bool[] buttonLast = new bool[12];
         private static int povLast = 0;
 
+        enum ButtonIndex
+        {
+            Default = -1,
+            Iris = 0,
+            FPS = 1,
+            Gain = 2,
+            Shutter = 3,
+            WB = 4,
+        };
+        private static ButtonIndex page = ButtonIndex.Default;
+
+        private static string[] buttonLabels = new string[] {
+            "","","Assign1","Assign2","Assign3",
+            "Iris\n","FPS\n","Gain\n0db","Shutter\n1/250","WB\n5600K",
+            "","","Preset1","Preset2","Preset3",
+        };
+
+        private static IMacroBoard streamDeck;
+
         public Form1()
         {
             InitializeComponent();
@@ -79,31 +103,11 @@ namespace appPtz2
                 joystick.Acquire();
             }
 
-            var buttonLabels = new[] {
-                "","","Assign1","Assign2","Assign3",
-                "","FPS\n23.97","Gain\n0db","Shutter\n1/250","WB\n5600K",
-                "","","Preset1","Preset2","Preset3",
-            };
+            streamDeck = StreamDeck.OpenDevice();
+            streamDeck.SetBrightness(80);
 
-            var deck = StreamDeck.OpenDevice();
-            deck.SetBrightness(80);
-
-            for (int i = 0; i < deck.Keys.Count && i < buttonLabels.Length; i++)
-            {
-                var bmp = RenderKeyBitmap(buttonLabels[i]);
-                var keyBmp = KeyBitmap.Create.FromBitmap(bmp);
-                deck.SetKeyBitmap(i, keyBmp);
-            }
-
-            deck.KeyStateChanged += (sender, e) =>
-            {
-                Console.WriteLine($"Key {e.Key} {(e.IsDown ? "DOWN" : "UP")}");
-
-                if (e.IsDown)
-                {
-                    // deck.SetKeyBitmap(e.Key, KeyBitmap.Create.FromRgb(255, 255, 255)); など
-                }
-            };
+            streamDeck.KeyStateChanged += keyChanged;
+            updateButton();
 
             // gamepadポーリングtimer
             timer = new System.Timers.Timer(50);
@@ -174,26 +178,26 @@ namespace appPtz2
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
-        public extern static int getDeviceProperty([MarshalAs(UnmanagedType.LPStr)] string code);
+        public extern static Int64 getDeviceProperty([MarshalAs(UnmanagedType.LPStr)] string code);
 
         private void getDP_Click(object sender, EventArgs e)
         {
-            int ret = getDeviceProperty(txtCode.Text);
+            Int64 ret = getDeviceProperty(txtCode.Text);
             txtData.Text = ret.ToString();
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
-        public extern static int incDeviceProperty([MarshalAs(UnmanagedType.LPStr)] string code, int incDev, bool blocking);
+        public extern static Int64 incDeviceProperty([MarshalAs(UnmanagedType.LPStr)] string code, int incDev, bool blocking);
 
         private void incDP_Click(object sender, EventArgs e)
         {
-            int ret = incDeviceProperty(txtCode.Text, 1, true/*blocking*/);
+            Int64 ret = incDeviceProperty(txtCode.Text, 1, true/*blocking*/);
             txtData.Text = ret.ToString();
         }
 
         private void decDP_Click(object sender, EventArgs e)
         {
-            int ret = incDeviceProperty(txtCode.Text, 0, true/*blocking*/);
+            Int64 ret = incDeviceProperty(txtCode.Text, 0, true/*blocking*/);
             txtData.Text = ret.ToString();
         }
 
@@ -207,7 +211,7 @@ namespace appPtz2
 
         private void updateLiveview_Click(object sender, EventArgs e)
         {
-            updateLiveView();
+            //updateLiveView(); // debug
         }
 
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
@@ -266,8 +270,9 @@ namespace appPtz2
         {
             if (Interlocked.Exchange(ref _running, 1) == 1)
             {
-                return;
                 Console.WriteLine($"onChanged");
+                updateButton();
+                return;
             }
         }
 
@@ -278,7 +283,6 @@ namespace appPtz2
                 // UI スレッドで updateDP を呼ぶ
                 _instance.Invoke((MethodInvoker)(() => _instance.updateDP()));
             }
-            Console.WriteLine($"onChanged");
         }
 
 
@@ -356,7 +360,147 @@ namespace appPtz2
             Console.WriteLine($"{xy[0]},{xy[1]},{xy[2]},{xy[3]},{str},{pov}");
         }
 
-        public Bitmap RenderKeyBitmap(string text)
+        public string format_f_number(Int64 f_number)
+        {
+            const int CrFnumber_IrisClose = 0xFFFD; // Iris Close
+            const int CrFnumber_Unknown = 0xFFFE; // Display "--"
+	        const int CrFnumber_Nothing = 0xFFFF; // Nothing to display
+
+            string msg = $"unknown";
+            if ((0x0000 == f_number) || (CrFnumber_Unknown == f_number))
+            {
+                return $"--";
+            }
+            else if (CrFnumber_Nothing == f_number)
+            {
+                return $"";
+            }
+            else if ((f_number % 100) > 0)
+            {
+                return $"F{(f_number / 100.0):F1}";
+            }
+            else
+            {
+                return $"F{(f_number / 100)}";
+            }
+        }
+
+        public string format_shutter_speed(Int64 shutter_speed)
+        {
+            Int32 numerator = (Int32)((shutter_speed >> 32) & 0xFFFFFFFF);
+            Int32 denominator = (Int32)(shutter_speed & 0xFFFFFFFF);
+
+            if (0 == shutter_speed)
+            {
+                return $"Bulb";
+            }
+            else if (0 == denominator)
+            {
+                return $"error";
+            }
+            else if (1 == numerator)
+            {
+                return $"{numerator}/{denominator}";
+            }
+            else if (0 == (numerator % denominator))
+            {
+                return $"{numerator/denominator}\"";
+            }
+            else
+            {
+                Int32 numdivision = numerator / denominator;
+                Int32 numremainder = numerator % denominator;
+                return $"{numdivision}.{numremainder}";
+            }
+        }
+/*
+        public string format_whiteBalance(int data)
+        {
+            string msg = "unknown";
+            DPConv[] convTable = new DPConv[]
+            {
+            new DPConv { index = 0x0000, str = "AWB" },
+            new DPConv { index = 0x0001, str = "Underwater_Auto" },
+            new DPConv { index = 0x0011, str = "Daylight" },
+            new DPConv { index = 0x0012, str = "Shadow" },
+            new DPConv { index = 0x0013, str = "Cloudy" },
+            new DPConv { index = 0x0014, str = "Tungsten" },
+            new DPConv { index = 0x0020, str = "Fluorescent" },
+            new DPConv { index = 0x0021, str = "Fluorescent_WarmWhite" },
+            new DPConv { index = 0x0022, str = "Fluorescent_CoolWhite" },
+            new DPConv { index = 0x0023, str = "Fluorescent_DayWhite" },
+            new DPConv { index = 0x0024, str = "Fluorescent_Daylight" },
+            new DPConv { index = 0x0030, str = "Flush" },
+            new DPConv { index = 0x0100, str = "ColorTemp" },
+            new DPConv { index = 0x0101, str = "Custom_1" },
+            new DPConv { index = 0x0102, str = "Custom_2" },
+            new DPConv { index = 0x0103, str = "Custom_3" },
+            new DPConv { index = 0x0104, str = "Custom" },
+            };
+
+            int i = 0;
+            for (i = 0; i < convTable.Length; i++)
+            {
+                if (convTable[i].index == data)
+                {
+                    msg = convTable[i].str;
+                    break;
+                }
+            }
+            return msg;
+        }
+*/
+        private void updateButton()
+        {
+            if(disconnect.Enabled)
+            {
+                Int64 data;
+                data = getDeviceProperty($"FNumber");
+                buttonLabels[5 + (int)ButtonIndex.Iris] = $"Iris\n{format_f_number(data)}";
+
+                data = getDeviceProperty($"SQFrameRate");
+                buttonLabels[5 + (int)ButtonIndex.FPS] = $"FPS\n{data}";
+
+                data = getDeviceProperty($"GaindBValue");
+                buttonLabels[5 + (int)ButtonIndex.Gain] = $"Gain\n{data}db";
+
+                data = getDeviceProperty($"ShutterSpeedValue");
+                buttonLabels[5+(int)ButtonIndex.Shutter] = $"Shutter\n{format_shutter_speed(data)}";
+
+                data = getDeviceProperty($"Colortemp");
+                buttonLabels[5+(int)ButtonIndex.WB] = $"WB\n{data}K";
+            }
+
+            var _labels = new string[15];
+            switch (page)
+            {
+                default:
+                case ButtonIndex.Default:
+                    for(int i = 0; i < 15; i++)
+                    {
+                        _labels[i] = buttonLabels[i];
+                    }
+                    break;
+                case ButtonIndex.Iris:
+                case ButtonIndex.FPS:
+                case ButtonIndex.Gain:
+                case ButtonIndex.Shutter:
+                case ButtonIndex.WB:
+                    _labels[0 + (int)page] = $"↑";
+                    _labels[5 + (int)page] = buttonLabels[5 + (int)page];
+                    _labels[10 + (int)page] = $"↓";
+                    break;
+            }
+
+            for (int i = 0; i < streamDeck.Keys.Count && i < buttonLabels.Length; i++)
+            {
+                var bmp = RenderKeyBitmap(_labels[i]);
+                var keyBmp = KeyBitmap.Create.FromBitmap(bmp);
+                streamDeck.SetKeyBitmap(i, keyBmp);
+            }
+        }
+
+        private Bitmap RenderKeyBitmap(string text)
         {
             const int size = 144;
 
@@ -365,12 +509,60 @@ namespace appPtz2
             g.Clear(Color.FromArgb(30, 30, 30));
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
 
-            var font = new Font("Segoe UI", 24, FontStyle.Bold);
+            var font = new Font("Segoe UI", 20, FontStyle.Bold);
             var brush = new SolidBrush(Color.White);
             var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             g.DrawString(text, font, brush, new RectangleF(0, 0, size, size), sf);
 
             return bmp;
+        }
+
+        private void keyChanged(object sender, OpenMacroBoard.SDK.KeyEventArgs e)
+        {
+            Console.WriteLine($"Key {e.Key} {(e.IsDown ? $"DOWN" : $"UP")}");
+            if (!e.IsDown) return;
+
+            string[] DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"GaindBValue", $"ShutterSpeedValue", $"Colortemp" };
+
+            switch (page)
+            {
+                default:
+                case ButtonIndex.Default:
+                    switch(e.Key)
+                    {
+                        case 5 + (int)ButtonIndex.Iris:
+                        case 5 + (int)ButtonIndex.FPS:
+                        case 5 + (int)ButtonIndex.Gain:
+                        case 5 + (int)ButtonIndex.Shutter:
+                        case 5 + (int)ButtonIndex.WB:
+                            page = (ButtonIndex)(e.Key - 5);
+                            break;
+                        default:
+                            page = ButtonIndex.Default;
+                            break;
+                    }
+                    break;
+                case ButtonIndex.Iris:
+                case ButtonIndex.FPS:
+                case ButtonIndex.Gain:
+                case ButtonIndex.Shutter:
+                case ButtonIndex.WB:
+                    if(e.Key == 0 + (int)page)
+                    {
+                        incDeviceProperty(DPTable[(int)page], 1, true);
+                    }
+                    else if (e.Key == 10 + (int)page)
+                    {
+                        incDeviceProperty(DPTable[(int)page], 0, true);
+                    }
+                    else
+                    {
+                        page = ButtonIndex.Default;
+                    }
+                    break;
+
+            }
+            updateButton();
         }
     }
 }

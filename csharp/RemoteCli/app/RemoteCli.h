@@ -17,10 +17,10 @@ extern "C" __declspec(dllexport)
 int setDeviceProperty(char* code, int64_t data, bool blocking);
 
 extern "C" __declspec(dllexport)
-int getDeviceProperty(char* code);
+int64_t getDeviceProperty(char* code);
 
 extern "C" __declspec(dllexport)
-int incDeviceProperty(char* code, int incDec, bool blocking);
+int64_t incDeviceProperty(char* code, int incDec, bool blocking);
 
 extern "C" __declspec(dllexport)
 int sendCommand(char* inputLine);

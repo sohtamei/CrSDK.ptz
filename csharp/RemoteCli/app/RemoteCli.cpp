@@ -428,7 +428,7 @@ int setDeviceProperty(char* code, int64_t data, bool blocking=true)
     return _setDeviceProperty(m_device_handle, codeInt, (uint64_t)data, blocking);
 }
 
-int getDeviceProperty(char* code)
+int64_t getDeviceProperty(char* code)
 {
     int32_t codeInt = CrDevicePropertyCode(code);
     if(codeInt < 0) {
@@ -436,7 +436,7 @@ int getDeviceProperty(char* code)
         return 0;
     }
 
-    int data = 0;
+    int64_t data = 0;
     SCRSDK::CrError err = 0;
     SCRSDK::CrDeviceProperty devProp;
     err = _getDeviceProperty(m_device_handle, codeInt, &devProp);
@@ -446,7 +446,7 @@ Error:
     return data;
 }
 
-int incDeviceProperty(char* code, int incDec, bool blocking=true)
+int64_t incDeviceProperty(char* code, int incDec, bool blocking=true)
 {
     int32_t codeInt = CrDevicePropertyCode(code);
     if(codeInt < 0) {
@@ -454,7 +454,7 @@ int incDeviceProperty(char* code, int incDec, bool blocking=true)
         return 0;
     }
 
-    int data = 0;
+    int64_t data = 0;
     SCRSDK::CrError err = 0;
     SCRSDK::CrDeviceProperty devProp;
 
@@ -465,22 +465,39 @@ int incDeviceProperty(char* code, int incDec, bool blocking=true)
 
 	{
 		std::vector<int64_t> possible = _getPossible(&devProp);
-		for(int i = 0; i < possible.size(); i++) {
-			if(devProp.GetCurrentValue() == possible[i]) {
-				int index = i;
-				if(incDec) index++;
-				else index--;
-				if(index >= 0 && index <= possible.size()-1) {
-					err = _setDeviceProperty(m_device_handle, codeInt, possible[index], blocking);
-				    if(err) GotoError("", err);
+		int type = (devProp.GetValueType() & 0x6000);
 
-					err = _getDeviceProperty(m_device_handle, codeInt, &devProp);
-					if(err) GotoError("", err);
-				    data = devProp.GetCurrentValue();
+		if(type == SCRSDK::CrDataType_ArrayBit) {
+			for(int i = 0; i < possible.size(); i++) {
+				if(devProp.GetCurrentValue() == possible[i]) {
+					int index = i;
+					if(incDec) index++;
+					else index--;
+					if(index >= 0 && index <= possible.size()-1) {
+						err = _setDeviceProperty(m_device_handle, codeInt, possible[index], blocking);
+						if(err) GotoError("", err);
+					}
+					break;
 				}
-				break;
 			}
+		} else if(type == SCRSDK::CrDataType_RangeBit) {
+			int64_t min = possible[0];
+			int64_t max = possible[1];
+			int64_t step = possible[2];
+			data = devProp.GetCurrentValue();
+			if(incDec) {
+				data += step;
+				if(data > max) goto Error;
+			} else {
+				data -= step;
+				if(data < min) goto Error;
+			}
+			err = _setDeviceProperty(m_device_handle, codeInt, data, blocking);
+		    if(err) GotoError("", err);
 		}
+		err = _getDeviceProperty(m_device_handle, codeInt, &devProp);
+		if(err) GotoError("", err);
+		data = devProp.GetCurrentValue();
 	}
 Error:
     return data;
