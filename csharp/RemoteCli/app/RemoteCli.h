@@ -41,8 +41,9 @@ typedef void (*LiveviewCbFunc)(int eventId);
 
 extern "C" __declspec(dllexport)
 void RegisterLiveviewCb(LiveviewCbFunc liveviewCb);
-
+/*
 typedef void (*ChangedCbFunc)(int eventId);
 
 extern "C" __declspec(dllexport)
 void RegisterChangedCb(ChangedCbFunc ChangedCb);
+*/

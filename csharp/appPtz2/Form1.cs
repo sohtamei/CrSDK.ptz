@@ -29,25 +29,18 @@ namespace appPtz2
 
         const string DLLPath = "RemoteCli.dll";
 
+        // 2025/09/29 Liveview cbとchanged cbを別にするとLiveview cbが来なくなる
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LiveviewCbDelegate(int eventId);
 
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
         public static extern void RegisterLiveviewCb(LiveviewCbDelegate liveviewCb);
 
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void ChangedCbDelegate(int eventId);
-
-        [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void RegisterChangedCb(ChangedCbDelegate changedCb);
-
         const int SPEED_MAX = 50; // 127;
 
         private static Form1 _instance;
 
         private static LiveviewCbDelegate liveviewCb = new LiveviewCbDelegate(OnLiveviewCb);
-
-        private static ChangedCbDelegate changedCb = new ChangedCbDelegate(OnChangedCb);
 
         private static System.Timers.Timer timer;
 
@@ -83,8 +76,6 @@ namespace appPtz2
             _instance = this;
 
             RegisterLiveviewCb(liveviewCb);
-
-            RegisterChangedCb(changedCb);
 
             var joystickGuid = Guid.Empty;
             foreach (var deviceInstance in directInput.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly))
@@ -211,7 +202,7 @@ namespace appPtz2
 
         private void updateLiveview_Click(object sender, EventArgs e)
         {
-            //updateLiveView(); // debug
+            updateLiveView(0); // debug
         }
 
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
@@ -223,7 +214,7 @@ namespace appPtz2
 
 
         private int _running = 0;   // 0:アイドル, 1:実行中
-        private void updateLiveView()
+        private void updateLiveView(int eventId)    // 0:liveview, 1:changedDP
         {
             if (Interlocked.Exchange(ref _running, 1) == 1)
             {
@@ -231,24 +222,33 @@ namespace appPtz2
             }
             try
             {
-                int ret = getLiveview(out IntPtr imagePtr, out uint size);
-                if (ret != 0 || imagePtr == IntPtr.Zero || size <= 0) return;
-
-                try
+                if(eventId == 0)
                 {
-                    byte[] managedBuffer = new byte[size];
-                    Marshal.Copy(imagePtr, managedBuffer, 0, (int)size);
-                    deleteUint8Array(imagePtr);
+                    int ret = getLiveview(out IntPtr imagePtr, out uint size);
+                    if (ret != 0 || imagePtr == IntPtr.Zero || size <= 0) return;
 
-                    using (MemoryStream ms = new MemoryStream(managedBuffer))
+                    try
                     {
-                        liveview.Image?.Dispose();
-                        liveview.Image = Image.FromStream(ms);
+                        byte[] managedBuffer = new byte[size];
+                        Marshal.Copy(imagePtr, managedBuffer, 0, (int)size);
+                        deleteUint8Array(imagePtr);
+
+                        using (MemoryStream ms = new MemoryStream(managedBuffer))
+                        {
+                            liveview.Image?.Dispose();
+                            liveview.Image = Image.FromStream(ms);
+                        }
                     }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"error: {ex.Message}");
+                    }
+
                 }
-                catch (Exception ex)
+                else if (eventId == 1)
                 {
-                    MessageBox.Show($"error: {ex.Message}");
+                    Console.WriteLine($"onChanged");
+                    updateButton();
                 }
             }
             finally
@@ -262,29 +262,9 @@ namespace appPtz2
             if (_instance != null)
             {
                 // UI スレッドで updateLiveView を呼ぶ
-                _instance.Invoke((MethodInvoker)(() => _instance.updateLiveView()));
+                _instance.Invoke((MethodInvoker)(() => _instance.updateLiveView(eventId)));
             }
         }
-
-        private void updateDP()
-        {
-            if (Interlocked.Exchange(ref _running, 1) == 1)
-            {
-                Console.WriteLine($"onChanged");
-                updateButton();
-                return;
-            }
-        }
-
-        static void OnChangedCb(int eventId)
-        {
-            if (_instance != null)
-            {
-                // UI スレッドで updateDP を呼ぶ
-                _instance.Invoke((MethodInvoker)(() => _instance.updateDP()));
-            }
-        }
-
 
         private static void OnTimedEvent(Object source, ElapsedEventArgs e)
         {
@@ -530,6 +510,21 @@ namespace appPtz2
                 case ButtonIndex.Default:
                     switch(e.Key)
                     {
+                        case 2:
+                            setDeviceProperty("AssignableButton1", 2, true/*blocking*/);
+                            Thread.Sleep(10);
+                            setDeviceProperty("AssignableButton1", 1, true/*blocking*/);
+                            break;
+                        case 3:
+                            setDeviceProperty("AssignableButton2", 2, true/*blocking*/);
+                            Thread.Sleep(10);
+                            setDeviceProperty("AssignableButton2", 1, true/*blocking*/);
+                            break;
+                        case 4:
+                            setDeviceProperty("AssignableButton3", 2, true/*blocking*/);
+                            Thread.Sleep(10);
+                            setDeviceProperty("AssignableButton3", 1, true/*blocking*/);
+                            break;
                         case 5 + (int)ButtonIndex.Iris:
                         case 5 + (int)ButtonIndex.FPS:
                         case 5 + (int)ButtonIndex.Gain:

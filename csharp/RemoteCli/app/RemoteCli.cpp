@@ -69,13 +69,13 @@ void RegisterLiveviewCb(LiveviewCbFunc liveviewCb)
 {
     m_liveviewCb = liveviewCb;
 }
-
+/*
 ChangedCbFunc m_changedCb = nullptr;
 void RegisterChangedCb(ChangedCbFunc changedCb)
 {
     m_changedCb = changedCb;
 }
-
+*/
 
 /*
 std::promise<void>* m_lvPromise = nullptr;
@@ -274,7 +274,7 @@ public:
             }
 */
         }
-        if(m_changedCb && !m_disconnect_req) m_changedCb(0);
+        if(m_liveviewCb && !m_disconnect_req) m_liveviewCb(1);
     }
     
     void OnNotifyMonitorUpdated(CrInt32u type, CrInt32u frameNo)
