@@ -36,7 +36,7 @@ namespace appPtz2
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
         public static extern void RegisterLiveviewCb(LiveviewCbDelegate liveviewCb);
 
-        const int SPEED_MAX = 50; // 127;
+        private static int SPEED_MAX = 127; // AM7=127, FR7=50. connect時に読み込み
 
         private static Form1 _instance;
 
@@ -111,6 +111,7 @@ namespace appPtz2
 
         private void connect_Click(object sender, EventArgs e)
         {
+            SPEED_MAX = int.Parse(txtSpeedMax.Text);
             disconnect.Enabled = false;
             connect.Enabled = false;
             int data = RemoteCli_connect(txtConnect.Text);
@@ -202,7 +203,7 @@ namespace appPtz2
 
         private void updateLiveview_Click(object sender, EventArgs e)
         {
-            updateLiveView(0); // debug
+            updateLiveView(0);
         }
 
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
@@ -224,26 +225,28 @@ namespace appPtz2
             {
                 if(eventId == 0)
                 {
-                    int ret = getLiveview(out IntPtr imagePtr, out uint size);
-                    if (ret != 0 || imagePtr == IntPtr.Zero || size <= 0) return;
-
-                    try
+                    if (checkLiveview.Checked)
                     {
-                        byte[] managedBuffer = new byte[size];
-                        Marshal.Copy(imagePtr, managedBuffer, 0, (int)size);
-                        deleteUint8Array(imagePtr);
+                        int ret = getLiveview(out IntPtr imagePtr, out uint size);
+                        if (ret != 0 || imagePtr == IntPtr.Zero || size <= 0) return;
 
-                        using (MemoryStream ms = new MemoryStream(managedBuffer))
+                        try
                         {
-                            liveview.Image?.Dispose();
-                            liveview.Image = Image.FromStream(ms);
+                            byte[] managedBuffer = new byte[size];
+                            Marshal.Copy(imagePtr, managedBuffer, 0, (int)size);
+                            deleteUint8Array(imagePtr);
+
+                            using (MemoryStream ms = new MemoryStream(managedBuffer))
+                            {
+                                liveview.Image?.Dispose();
+                                liveview.Image = Image.FromStream(ms);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show($"error: {ex.Message}");
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"error: {ex.Message}");
-                    }
-
                 }
                 else if (eventId == 1)
                 {
@@ -268,7 +271,6 @@ namespace appPtz2
 
         private static void OnTimedEvent(Object source, ElapsedEventArgs e)
         {
-            int ret;
             joystick.Poll();
             var state = joystick.GetCurrentState();
 
@@ -510,17 +512,17 @@ namespace appPtz2
                 case ButtonIndex.Default:
                     switch(e.Key)
                     {
-                        case 2:
+                        case 0 + 2:
                             setDeviceProperty("AssignableButton1", 2, true/*blocking*/);
                             Thread.Sleep(10);
                             setDeviceProperty("AssignableButton1", 1, true/*blocking*/);
                             break;
-                        case 3:
+                        case 0 + 3:
                             setDeviceProperty("AssignableButton2", 2, true/*blocking*/);
                             Thread.Sleep(10);
                             setDeviceProperty("AssignableButton2", 1, true/*blocking*/);
                             break;
-                        case 4:
+                        case 0 + 4:
                             setDeviceProperty("AssignableButton3", 2, true/*blocking*/);
                             Thread.Sleep(10);
                             setDeviceProperty("AssignableButton3", 1, true/*blocking*/);
@@ -531,6 +533,15 @@ namespace appPtz2
                         case 5 + (int)ButtonIndex.Shutter:
                         case 5 + (int)ButtonIndex.WB:
                             page = (ButtonIndex)(e.Key - 5);
+                            break;
+                        case 10 + 2:
+                            setDeviceProperty("PresetPTZFSlotNumber", 1, false/*blocking*/);
+                            break;
+                        case 10 + 3:
+                            setDeviceProperty("PresetPTZFSlotNumber", 2, false/*blocking*/);
+                            break;
+                        case 10 + 4:
+                            setDeviceProperty("PresetPTZFSlotNumber", 3, false/*blocking*/);
                             break;
                         default:
                             page = ButtonIndex.Default;
