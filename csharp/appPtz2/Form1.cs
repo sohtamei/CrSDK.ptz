@@ -1,4 +1,4 @@
-﻿using SharpDX.DirectInput;  
+using SharpDX.DirectInput;  
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -86,7 +86,7 @@ namespace appPtz2
 
             if (joystickGuid == Guid.Empty)
             {
-                Console.WriteLine("ゲームパッドが見つかりません");
+                Console.WriteLine("no gamepad");
             }
             else
             {
@@ -94,11 +94,18 @@ namespace appPtz2
                 joystick.Acquire();
             }
 
-            streamDeck = StreamDeck.OpenDevice();
-            streamDeck.SetBrightness(80);
+            try
+            {
+                streamDeck = StreamDeck.OpenDevice();
+                streamDeck.SetBrightness(80);
 
-            streamDeck.KeyStateChanged += keyChanged;
-            updateButton();
+                streamDeck.KeyStateChanged += keyChanged;
+                updateButton();
+            }
+            catch
+            {
+                Console.WriteLine("no streamdeck");
+            }
 
             // gamepadポーリングtimer
             timer = new System.Timers.Timer(50);
@@ -251,7 +258,10 @@ namespace appPtz2
                 else if (eventId == 1)
                 {
                     Console.WriteLine($"onChanged");
-                    updateButton();
+                    if (streamDeck != null)
+                    {
+                        updateButton();
+                    }
                 }
             }
             finally
