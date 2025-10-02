@@ -316,11 +316,18 @@ namespace appPtz2
                 {
                     switch(i)
                     {
+                        /*
                         case 0: controlPTZF("4");                               break;
                         case 1: sendCommand("RemoteKeyMenuButton 1 0");         break;
                         case 2: sendCommand("RemoteKeyCancelBackButton 1 0");   break;
                         case 3: sendCommand("RemoteKeySet 1 0");                break;
                         case 11: sendCommand("RemoteKeyDisplayButton 1 0");     break;
+                        */
+                        case 0: controlPTZF("4"); break;
+                        case 3: sendCommand("RemoteKeyMenuButton 1 0"); break;
+                        case 2: sendCommand("RemoteKeyCancelBackButton 1 0"); break;
+                        case 1: sendCommand("RemoteKeySet 1 0"); break;
+                        case 9: sendCommand("RemoteKeyDisplayButton 1 0"); break;
                     }
                     break;
                 }
