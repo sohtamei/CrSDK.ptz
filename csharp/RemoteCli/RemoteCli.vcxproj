@@ -179,7 +179,6 @@
     <ClInclude Include=".\app\CRSDK\IDeviceCallback.h" />
     <ClInclude Include="app\RemoteCli.h" />
   </ItemGroup>
-  <ItemGroup />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

@@ -29,6 +29,9 @@ namespace appPtz2
 
         const string DLLPath = "RemoteCli.dll";
 
+        [DllImport(DLLPath)]
+        public extern static int RemoteCli_init();
+
         // 2025/09/29 Liveview cbとchanged cbを別にするとLiveview cbが来なくなる
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LiveviewCbDelegate(int eventId);
@@ -51,6 +54,8 @@ namespace appPtz2
         private static bool[] buttonLast = new bool[12];
         private static int povLast = 0;
         private static int BlindZone = 0;
+        private static int CameraIndex = 0;
+        private static bool[] CameraConnected = { false, false, false };
 
         enum ButtonIndex
         {
@@ -76,6 +81,7 @@ namespace appPtz2
             InitializeComponent();
             _instance = this;
 
+            RemoteCli_init();
             RegisterLiveviewCb(liveviewCb);
 
             var joystickGuid = Guid.Empty;
@@ -124,41 +130,77 @@ namespace appPtz2
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
-        public extern static int RemoteCli_connect([MarshalAs(UnmanagedType.LPStr)] string inputLine);
+        public extern static int RemoteCli_connect(int index, [MarshalAs(UnmanagedType.LPStr)] string inputLine);
 
-        private void connect_Click(object sender, EventArgs e)
+        [DllImport(DLLPath)]
+        public extern static int RemoteCli_disconnect(int index);
+
+       private void connectX_Click(int index)
         {
-            SPEED_MAX = int.Parse(txtSpeedMax.Text);
-            disconnect.Enabled = false;
-            connect.Enabled = false;
-            int data = RemoteCli_connect(txtConnect.Text);
-            if (data == 0) {
-                disconnect.Enabled = true;
+            System.Windows.Forms.Button connect = null;
+            System.Windows.Forms.TextBox txtConnect = null;
 
-                if (joystick != null) {
-                    joystick.Poll();
-                    var state = joystick.GetCurrentState();
-                    xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
-                    BlindZone = int.Parse(textBlindZone.Text);
-                    timer.Enabled = true;
+            switch (index)
+            {
+                case 0:
+                    connect = connect0;
+                    txtConnect = txtConnect0;
+                    break;
+                case 1:
+                    connect = connect1;
+                    txtConnect = txtConnect1;
+                    break;
+                default:
+                    return;
+            }
+
+            if (CameraConnected[index] == false)
+            {
+                SPEED_MAX = int.Parse(txtSpeedMax.Text);
+                BlindZone = int.Parse(textBlindZone.Text);
+
+                // OFF->ON
+                connect.Enabled = false;
+                int ret = RemoteCli_connect(index, txtConnect.Text);
+                connect.Enabled = true;
+                if (ret == 0)
+                {
+                    connect.BackColor = Color.Orange;
+                    connect.Text = "disconnect";
+                    CameraConnected[index] = true;
+
+                    if (joystick != null)
+                    {
+                        joystick.Poll();
+                        var state = joystick.GetCurrentState();
+                        xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
+                        timer.Enabled = true;
+                    }
                 }
             }
             else
             {
+                // ON->OFF
+                connect.BackColor = SystemColors.Control;
+                connect.Text = "connect";
+                CameraConnected[index] = false;
+
+                timer.Enabled = false;
+                liveview.Image = null;
+                connect.Enabled = false;
+                int ret = RemoteCli_disconnect(index);
                 connect.Enabled = true;
             }
         }
 
-        [DllImport(DLLPath)]
-        public extern static int RemoteCli_disconnect();
-
-        private void disconnect_Click(object sender, EventArgs e)
+        private void connect0_Click(object sender, EventArgs e)
         {
-            timer.Enabled = false;
-            disconnect.Enabled = false;
-            liveview.Image = null;
-            int ret = RemoteCli_disconnect();
-            connect.Enabled = true;
+            connectX_Click(0);
+        }
+
+        private void connect1_Click(object sender, EventArgs e)
+        {
+            connectX_Click(1);
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -465,7 +507,7 @@ namespace appPtz2
 */
         private void updateButton()
         {
-            if(disconnect.Enabled)
+            if (CameraConnected[CameraIndex])
             {
                 Int64 data;
                 data = getDeviceProperty($"FNumber");
