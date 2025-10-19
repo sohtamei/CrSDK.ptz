@@ -50,6 +50,7 @@ namespace appPtz2
         private static int[] xyLast = new int[4];
         private static bool[] buttonLast = new bool[12];
         private static int povLast = 0;
+        private static int BlindZone = 0;
 
         enum ButtonIndex
         {
@@ -111,6 +112,15 @@ namespace appPtz2
             timer = new System.Timers.Timer(50);
             timer.Elapsed += OnTimedEvent;
             timer.AutoReset = true;
+
+            // debug
+            /*
+            joystick.Poll();
+            var state = joystick.GetCurrentState();
+            xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
+            BlindZone = int.Parse(textBlindZone.Text);
+            timer.Enabled = true;
+            */                               
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -129,6 +139,7 @@ namespace appPtz2
                     joystick.Poll();
                     var state = joystick.GetCurrentState();
                     xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
+                    BlindZone = int.Parse(textBlindZone.Text);
                     timer.Enabled = true;
                 }
             }
@@ -286,7 +297,10 @@ namespace appPtz2
 
             // stick
             int[] xy = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
-            for (int i = 0; i < 4; i++) { xy[i] -= xyOffset[i];}
+            for (int i = 0; i < 4; i++) {
+                xy[i] -= xyOffset[i];
+                if (Math.Abs(xy[i]) < BlindZone) xy[i] = 0;
+            }
 
             if (Math.Abs(xyLast[2] - xy[2]) > 5000 || Math.Abs(xyLast[3] - xy[3]) > 5000) {
                 int pan = -(int)(xy[2] * SPEED_MAX / 32768.0);
