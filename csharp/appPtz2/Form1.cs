@@ -1,4 +1,7 @@
+using HidSharp.Reports;
+using OpenMacroBoard.SDK;
 using SharpDX.DirectInput;  
+using StreamDeckSharp;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -6,15 +9,15 @@ using System.Data;
 using System.Drawing;
 using System.Drawing.Text;
 using System.IO;
+using System.IO.Ports;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using System.Windows.Forms;
-using OpenMacroBoard.SDK;
-using StreamDeckSharp;
 
 
 namespace appPtz2
@@ -34,7 +37,7 @@ namespace appPtz2
 
         // 2025/09/29 Liveview cbとchanged cbを別にするとLiveview cbが来なくなる
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void LiveviewCbDelegate(int eventId);
+        public delegate void LiveviewCbDelegate(int eventId, int index);
 
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
         public static extern void RegisterLiveviewCb(LiveviewCbDelegate liveviewCb);
@@ -47,6 +50,9 @@ namespace appPtz2
 
         private static System.Timers.Timer timer;
 
+        static SerialPort comport = null;
+
+        // joystick
         private static DirectInput directInput = new DirectInput();
         private static Joystick joystick = null;
         private static int[] xyOffset;
@@ -54,7 +60,8 @@ namespace appPtz2
         private static bool[] buttonLast = new bool[12];
         private static int povLast = 0;
         private static int BlindZone = 0;
-        private static int CameraIndex = 0;
+        private static int currentIndex = 0;
+
         private static bool[] CameraConnected = { false, false, false };
 
         enum ButtonIndex
@@ -69,7 +76,7 @@ namespace appPtz2
         private static ButtonIndex page = ButtonIndex.Default;
 
         private static string[] buttonLabels = new string[] {
-            "","","Assign1","Assign2","Assign3",
+            "1","2","Assign1","Assign2","Assign3",
             "Iris\n","FPS\n","Gain\n0db","Shutter\n1/250","WB\n5600K",
             "","","Preset1","Preset2","Preset3",
         };
@@ -126,7 +133,32 @@ namespace appPtz2
             xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
             BlindZone = int.Parse(textBlindZone.Text);
             timer.Enabled = true;
-            */                               
+            */
+
+            try
+            {
+                using (StreamReader reader = new StreamReader("config.txt"))
+                {
+                    for(int i = 0;i < 5; i++)
+                    {
+                        string line = reader.ReadLine();
+                        if (line == null) break;
+                        switch(i)
+                        {
+                            case 0: txtConnect0.Text = line; break;
+                            case 1: txtConnect1.Text = line; break;
+                            case 2: txtConnect2.Text = line; break;
+                            case 3: txtComport.Text = line; break;
+                            case 4: txtBlindZone.Text = line; break;
+                        }
+                    }
+                }
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("ファイルの読み込み中にエラーが発生しました: " + e.Message);
+            }
+
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -135,11 +167,12 @@ namespace appPtz2
         [DllImport(DLLPath)]
         public extern static int RemoteCli_disconnect(int index);
 
-       private void connectX_Click(int index)
+        private void connectX_Click(int index)
         {
             System.Windows.Forms.Button connect = null;
             System.Windows.Forms.TextBox txtConnect = null;
 
+            enableConnect(false);
             switch (index)
             {
                 case 0:
@@ -157,12 +190,10 @@ namespace appPtz2
             if (CameraConnected[index] == false)
             {
                 SPEED_MAX = int.Parse(txtSpeedMax.Text);
-                BlindZone = int.Parse(textBlindZone.Text);
+                BlindZone = int.Parse(txtBlindZone.Text);
 
                 // OFF->ON
-                connect.Enabled = false;
                 int ret = RemoteCli_connect(index, txtConnect.Text);
-                connect.Enabled = true;
                 if (ret == 0)
                 {
                     connect.BackColor = Color.Orange;
@@ -176,21 +207,28 @@ namespace appPtz2
                         xyOffset = new int[4] { state.X, state.Y, state.Z, state.RotationZ };
                         timer.Enabled = true;
                     }
+
+                    if(comport  == null && txtComport.Text != "COM")
+                    {
+                        comport = new SerialPort(txtComport.Text, 115200);
+                        comport.Open();
+                    }
                 }
             }
             else
             {
                 // ON->OFF
                 connect.BackColor = SystemColors.Control;
+                connect.UseVisualStyleBackColor = true;
                 connect.Text = "connect";
                 CameraConnected[index] = false;
 
                 timer.Enabled = false;
                 liveview.Image = null;
-                connect.Enabled = false;
                 int ret = RemoteCli_disconnect(index);
-                connect.Enabled = true;
+                Thread.Sleep(1000);
             }
+            enableConnect(true);
         }
 
         private void connect0_Click(object sender, EventArgs e)
@@ -203,6 +241,44 @@ namespace appPtz2
             connectX_Click(1);
         }
 
+        private void connect2_Click(object sender, EventArgs e)
+        {
+            connectX_Click(2);
+        }
+
+        private void enableConnect(bool enabled)
+        {
+            connect0.Enabled = enabled;
+            connect1.Enabled = enabled;
+            connect2.Enabled = enabled;
+        }
+
+        [DllImport(DLLPath)]
+        public extern static int setCameraIndex(int index);
+
+        private void selectX_Click(int index)
+        {
+            currentIndex = index;
+            setCameraIndex(index);
+            liveview.Image = null;
+            OnLiveviewCb(1, currentIndex);
+        }
+
+        private void buttonSelect0_Click(object sender, EventArgs e)
+        {
+            selectX_Click(0);
+        }
+
+        private void buttonSelect1_Click(object sender, EventArgs e)
+        {
+            selectX_Click(1);
+        }
+
+        private void buttonSelect2_Click(object sender, EventArgs e)
+        {
+            selectX_Click(2);
+        }
+
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
         public extern static int controlPTZF([MarshalAs(UnmanagedType.LPStr)] string type);
 
@@ -212,12 +288,12 @@ namespace appPtz2
         }
 
         [DllImport(DLLPath)]
-        public extern static int presetPTZFSet(Int32 index);
+        public extern static int presetPTZFSet(Int32 preset);
 
         private void setPreset_Click(object sender, EventArgs e)
         {
-            int index = Int32.Parse(txtPreset.Text);
-            int ret = presetPTZFSet(index);
+            int preset = Int32.Parse(txtPreset.Text);
+            int ret = presetPTZFSet(preset);
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -260,12 +336,12 @@ namespace appPtz2
         {
             int ret = sendCommand(txtCommand.Text);
         }
-
+/*
         private void updateLiveview_Click(object sender, EventArgs e)
         {
             updateLiveView(0);
         }
-
+*/
         [DllImport(DLLPath, CallingConvention = CallingConvention.Cdecl)]
         public extern static int getLiveview(out IntPtr instance, out UInt32 lv_size);
 
@@ -311,10 +387,7 @@ namespace appPtz2
                 else if (eventId == 1)
                 {
                     Console.WriteLine($"onChanged");
-                    if (streamDeck != null)
-                    {
-                        updateButton();
-                    }
+                    updateButton();
                 }
             }
             finally
@@ -323,7 +396,7 @@ namespace appPtz2
             }
         }
 
-        static void OnLiveviewCb(int eventId)
+        static void OnLiveviewCb(int eventId, int index)
         {
             if (_instance != null)
             {
@@ -334,6 +407,44 @@ namespace appPtz2
 
         private static void OnTimedEvent(Object source, ElapsedEventArgs e)
         {
+            // comport (encoder, joystick)
+            int[] uartData = new int[8];
+            if (comport != null)
+            {
+                string uartline = comport.ReadExisting();
+                if (!string.IsNullOrEmpty(uartline))
+                {
+                    int _index = uartline.IndexOfAny(new char[] { '\n', '\r' });
+                    if (_index >= 0)
+                    {
+                        uartline = uartline.Substring(0, _index).Trim();
+                        Console.WriteLine(uartline);
+
+                        string[] uartItems = uartline.Split(',');
+                        for(int i = 0; i < Math.Min(8, uartItems.Length); i++)
+                        {
+                            uartData[i] = int.Parse(uartItems[i]);
+                        }
+ 
+			            for (int i = 0; i < 4; i++) {
+			                if (Math.Abs(uartData[4+i]) < BlindZone) uartData[4+i] = 0;
+			            }
+                   }
+                }
+            }
+
+            // encoder
+			{
+	            string[] DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"GaindBValue", currentIndex == 0 ? $"ShutterSpeedValue" : $"ShutterSpeed", $"Colortemp" };
+				for (int i = 0; i < 4; i++)
+				{
+                    if (uartData[i] != 0)
+                    {
+                        incDeviceProperty(DPTable[i], uartData[i], true);
+                    }
+                }
+			}
+
             joystick.Poll();
             var state = joystick.GetCurrentState();
 
@@ -344,7 +455,12 @@ namespace appPtz2
                 if (Math.Abs(xy[i]) < BlindZone) xy[i] = 0;
             }
 
-            if (Math.Abs(xyLast[2] - xy[2]) > 5000 || Math.Abs(xyLast[3] - xy[3]) > 5000) {
+			if(uartData[4+1] != 0 || uartData[4+2] != 0 || uartData[4+3] != 0) {
+	            for (int i = 0; i < 4; i++) {
+					xy[i] = -uartData[4+i];
+				}
+			}
+            if (Math.Abs(xyLast[2] - xy[2]) > 2000 || Math.Abs(xyLast[3] - xy[3]) > 2000) {
                 int pan = -(int)(xy[2] * SPEED_MAX / 32768.0);
                 pan = Math.Min(SPEED_MAX, Math.Max(-SPEED_MAX, pan));
 
@@ -354,7 +470,7 @@ namespace appPtz2
                 string str2 = $"3 0 0 {pan} {tilt}";  // direction
                 Console.WriteLine(str2);
                 controlPTZF(str2);
-            } else if(Math.Abs(xyLast[1] - xy[1]) > 5000)
+            } else if(Math.Abs(xyLast[1] - xy[1]) > 2000)
             {
                 int zoom = -xy[1];
                 zoom = Math.Min(32767, Math.Max(-32767, zoom));
@@ -417,7 +533,7 @@ namespace appPtz2
 
         public string format_f_number(Int64 f_number)
         {
-            const int CrFnumber_IrisClose = 0xFFFD; // Iris Close
+          //const int CrFnumber_IrisClose = 0xFFFD; // Iris Close
             const int CrFnumber_Unknown = 0xFFFE; // Display "--"
 	        const int CrFnumber_Nothing = 0xFFFF; // Nothing to display
 
@@ -440,10 +556,23 @@ namespace appPtz2
             }
         }
 
-        public string format_shutter_speed(Int64 shutter_speed)
+        public string format_shutter_speed()
         {
-            Int32 numerator = (Int32)((shutter_speed >> 32) & 0xFFFFFFFF);
-            Int32 denominator = (Int32)(shutter_speed & 0xFFFFFFFF);
+            Int64 shutter_speed = 0;
+            Int32 numerator = 0;
+            Int32 denominator = 0;
+
+            if(currentIndex == 0)
+            {
+                shutter_speed = getDeviceProperty($"ShutterSpeedValue");
+                numerator = (Int32)((shutter_speed >> 32) & 0xFFFFFFFF);
+                denominator = (Int32)(shutter_speed & 0xFFFFFFFF);
+            } else
+            {
+                shutter_speed = getDeviceProperty($"ShutterSpeed");
+                numerator = (Int32)((shutter_speed >> 16) & 0xFFFF);
+                denominator = (Int32)(shutter_speed & 0xFFFF);
+            }
 
             if (0 == shutter_speed)
             {
@@ -459,7 +588,7 @@ namespace appPtz2
             }
             else if (0 == (numerator % denominator))
             {
-                return $"{numerator/denominator}\"";
+                return $"{numerator / denominator}\"";
             }
             else
             {
@@ -507,9 +636,28 @@ namespace appPtz2
 */
         private void updateButton()
         {
-            if (CameraConnected[CameraIndex])
+            string str = "";
+            Int64 data;
+            data = getDeviceProperty($"FNumber");
+            str += $"Iris={format_f_number(data)}    ";
+
+            data = getDeviceProperty($"SQFrameRate");
+            str += $"FPS={data}    ";
+
+            data = getDeviceProperty($"GaindBValue");
+            str += $"Gain={data}db    ";
+
+            str += $"Shutter={format_shutter_speed()}    ";
+
+            data = getDeviceProperty($"Colortemp");
+            str += $"WB={data}K";
+            labelDP.Text = str;
+
+            if (streamDeck == null)
+                return;
+
+            if (CameraConnected[currentIndex])
             {
-                Int64 data;
                 data = getDeviceProperty($"FNumber");
                 buttonLabels[5 + (int)ButtonIndex.Iris] = $"Iris\n{format_f_number(data)}";
 
@@ -519,8 +667,7 @@ namespace appPtz2
                 data = getDeviceProperty($"GaindBValue");
                 buttonLabels[5 + (int)ButtonIndex.Gain] = $"Gain\n{data}db";
 
-                data = getDeviceProperty($"ShutterSpeedValue");
-                buttonLabels[5+(int)ButtonIndex.Shutter] = $"Shutter\n{format_shutter_speed(data)}";
+                buttonLabels[5+(int)ButtonIndex.Shutter] = $"Shutter\n{format_shutter_speed()}";
 
                 data = getDeviceProperty($"Colortemp");
                 buttonLabels[5+(int)ButtonIndex.WB] = $"WB\n{data}K";
@@ -577,7 +724,7 @@ namespace appPtz2
             Console.WriteLine($"Key {e.Key} {(e.IsDown ? $"DOWN" : $"UP")}");
             if (!e.IsDown) return;
 
-            string[] DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"GaindBValue", $"ShutterSpeedValue", $"Colortemp" };
+            string[] DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"GaindBValue", currentIndex == 0 ? $"ShutterSpeedValue" : $"ShutterSpeed", $"Colortemp" };
 
             switch (page)
             {
@@ -585,6 +732,12 @@ namespace appPtz2
                 case ButtonIndex.Default:
                     switch(e.Key)
                     {
+                        case 0 + 0:
+                            selectX_Click(0);
+                            break;
+                        case 0 + 1:
+                            selectX_Click(1);
+                            break;
                         case 0 + 2:
                             setDeviceProperty("AssignableButton1", 2, true/*blocking*/);
                             Thread.Sleep(10);
@@ -632,7 +785,7 @@ namespace appPtz2
                     }
                     else if (e.Key == 10 + (int)page)
                     {
-                        incDeviceProperty(DPTable[(int)page], 0, true);
+                        incDeviceProperty(DPTable[(int)page], -1, true);
                     }
                     else
                     {
@@ -641,7 +794,7 @@ namespace appPtz2
                     break;
 
             }
-            updateButton();
+            OnLiveviewCb(1, currentIndex);
         }
     }
 }

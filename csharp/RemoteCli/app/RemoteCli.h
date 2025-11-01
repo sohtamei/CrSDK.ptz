@@ -19,6 +19,9 @@ extern "C" __declspec(dllexport)
 int RemoteCli_disconnect(int index);
 
 extern "C" __declspec(dllexport)
+int setCameraIndex(int index);
+
+extern "C" __declspec(dllexport)
 int setDeviceProperty(char* code, int64_t data, bool blocking);
 
 extern "C" __declspec(dllexport)
@@ -34,7 +37,7 @@ extern "C" __declspec(dllexport)
 int controlPTZF(char* type);
 
 extern "C" __declspec(dllexport)
-int presetPTZFSet(int32_t index);
+int presetPTZFSet(int32_t preset);
 
 extern "C" __declspec(dllexport)
 int getLiveview(uint8_t** lv_image, CrInt32u* lv_size);
@@ -42,7 +45,7 @@ int getLiveview(uint8_t** lv_image, CrInt32u* lv_size);
 extern "C" __declspec(dllexport)
 void deleteUint8Array(uint8_t* ptr);
 
-typedef void (*LiveviewCbFunc)(int eventId);
+typedef void (*LiveviewCbFunc)(int eventId, int index);
 
 extern "C" __declspec(dllexport)
 void RegisterLiveviewCb(LiveviewCbFunc liveviewCb);

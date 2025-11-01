@@ -47,6 +47,8 @@
 #include "CrDebugString.h"   // use CrDebugString.cpp
 #include "RemoteCli.h"
 
+int currentIndex = 0;
+
 #define PrintError(msg, err) { fprintf(stderr, "Error in %s(%d):" msg ",%s\n", __FUNCTION__, __LINE__, (err ? CrErrorString(err).c_str():"")); }
 #define GotoError(msg, err) { PrintError(msg, err); goto Error; }
 
@@ -71,6 +73,7 @@ public:
 	bool  m_connected = false;
 	bool  m_disconnect_req = false;
 	std::string m_modelId;
+	int m_index = 0;
 
 	std::mutex m_eventPromiseMutex;
 	uint32_t m_setDPCode = 0;
@@ -211,14 +214,16 @@ public:
                 }
             }
         }
-        if(m_liveviewCb && !m_disconnect_req) m_liveviewCb(1);
+        if(m_liveviewCb && !m_disconnect_req && m_index == currentIndex)
+            m_liveviewCb(1, m_index);
     }
     
     void OnNotifyMonitorUpdated(CrInt32u type, CrInt32u frameNo)
     {
         if(type == SCRSDK::CrMonitorUpdated_LiveView) {
     //  fprintf(stderr, "%x", frameNo & 0xF);
-		    if(m_liveviewCb && !m_disconnect_req) m_liveviewCb(0);
+            if(m_liveviewCb && !m_disconnect_req && m_index == currentIndex)
+		        m_liveviewCb(0, m_index);
         }
     }
 
@@ -275,9 +280,10 @@ public:
 	    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
 	    // set LiveViewProtocol=2(http)
-//★	    err = setDeviceProperty(SCRSDK::CrDeviceProperty_LiveViewProtocol, 2/*http*/);
-	    //if(err) goto Error;
-
+	    if(m_index == 0) {
+		    err = setDeviceProperty(SCRSDK::CrDeviceProperty_LiveViewProtocol, 2/*http*/);
+		    //if(err) goto Error;
+		}
 	    return 0;
 	Error:
 	    disconnect();
@@ -310,7 +316,10 @@ CameraDevice cameraDevice[3];
 
 void RegisterLiveviewCb(LiveviewCbFunc liveviewCb)
 {
-	cameraDevice[0].RegisterLiveviewCb(liveviewCb);
+	for(int i = 0; i < 3; i++) {
+		cameraDevice[i].RegisterLiveviewCb(liveviewCb);
+		cameraDevice[i].m_index = i;
+	}
 }
 
 int RemoteCli_init(void)
@@ -336,7 +345,7 @@ int RemoteCli_connect(int index, char* inputLine)
     uint32_t model = SCRSDK::CrCameraDeviceModel_BRC_AM7;
     std::string  userId = "";
     std::string  userPassword = "";
-    CrInt8u macAddress[6] = {0};
+    CrInt8u macAddress[6] = {index,index,index,index,index,index};
     CrInt32u ipAddress = 0;
     bool SSHsupport = false;
 
@@ -368,6 +377,12 @@ int RemoteCli_disconnect(int index)
 	return cameraDevice[index].disconnect();
 }
 
+int setCameraIndex(int index)
+{
+	currentIndex = index;
+	return 0;
+}
+
 int setDeviceProperty(char* code, int64_t data, bool blocking=true)
 {
     int32_t codeInt = CrDevicePropertyCode(code);
@@ -375,7 +390,7 @@ int setDeviceProperty(char* code, int64_t data, bool blocking=true)
         PrintError("unknown DP",0);
         return SCRSDK::CrError_Generic_Unknown;
     }
-    return cameraDevice[0].setDeviceProperty(codeInt, (uint64_t)data, blocking);
+    return cameraDevice[currentIndex].setDeviceProperty(codeInt, (uint64_t)data, blocking);
 }
 
 int64_t getDeviceProperty(char* code)
@@ -389,7 +404,7 @@ int64_t getDeviceProperty(char* code)
     int64_t data = 0;
     SCRSDK::CrError err = 0;
     SCRSDK::CrDeviceProperty devProp;
-    err = cameraDevice[0].getDeviceProperty(codeInt, &devProp);
+    err = cameraDevice[currentIndex].getDeviceProperty(codeInt, &devProp);
     if(err) GotoError("", err);
     data = devProp.GetCurrentValue();
 Error:
@@ -449,7 +464,7 @@ int64_t incDeviceProperty(char* code, int incDec, bool blocking=true)
     SCRSDK::CrError err = 0;
     SCRSDK::CrDeviceProperty devProp;
 
-    err = cameraDevice[0].getDeviceProperty(codeInt, &devProp);
+    err = cameraDevice[currentIndex].getDeviceProperty(codeInt, &devProp);
     if(err) GotoError("", err);
 
 	if(devProp.GetPropertyEnableFlag() != 1) GotoError("not writable",0);
@@ -458,16 +473,18 @@ int64_t incDeviceProperty(char* code, int incDec, bool blocking=true)
 		std::vector<int64_t> possible = _getPossible(&devProp);
 		int type = (devProp.GetValueType() & 0x6000);
 
+		data = devProp.GetCurrentValue();
 		if(type == SCRSDK::CrDataType_ArrayBit) {
 			for(int i = 0; i < possible.size(); i++) {
-				if(devProp.GetCurrentValue() == possible[i]) {
-					int index = i;
-					if(incDec) index++;
-					else index--;
-					if(index >= 0 && index <= possible.size()-1) {
-						err = cameraDevice[0].setDeviceProperty(codeInt, possible[index], blocking);
-						if(err) GotoError("", err);
+				if(data == possible[i]) {
+					int index = i + incDec;
+					if(index < 0) {
+						index = 0;
+					} else if(index > possible.size()-1) {
+						index = possible.size()-1;
 					}
+					err = cameraDevice[currentIndex].setDeviceProperty(codeInt, possible[index], blocking);
+					if(err) GotoError("", err);
 					break;
 				}
 			}
@@ -475,18 +492,17 @@ int64_t incDeviceProperty(char* code, int incDec, bool blocking=true)
 			int64_t min = possible[0];
 			int64_t max = possible[1];
 			int64_t step = possible[2];
-			data = devProp.GetCurrentValue();
-			if(incDec) {
-				data += step;
-				if(data > max) goto Error;
-			} else {
-				data -= step;
-				if(data < min) goto Error;
+			data += incDec * step;
+
+			if(data < min) {
+				data = min;
+			} else if(data > max) {
+				data = max;
 			}
-			err = cameraDevice[0].setDeviceProperty(codeInt, data, blocking);
+			err = cameraDevice[currentIndex].setDeviceProperty(codeInt, data, blocking);
 		    if(err) GotoError("", err);
 		}
-		err = cameraDevice[0].getDeviceProperty(codeInt, &devProp);
+		err = cameraDevice[currentIndex].getDeviceProperty(codeInt, &devProp);
 		if(err) GotoError("", err);
 		data = devProp.GetCurrentValue();
 	}
@@ -506,14 +522,14 @@ int sendCommand(char* inputLine)
     if(code < 0) return -1;
     try{ data = stoi(args[1]); } catch(const std::exception&) GotoError("", 0);
 
-    err = SCRSDK::SendCommand(cameraDevice[0].m_device_handle, code, (SCRSDK::CrCommandParam)data);
+    err = SCRSDK::SendCommand(cameraDevice[currentIndex].m_device_handle, code, (SCRSDK::CrCommandParam)data);
     if(err) GotoError("", err);
 
     if(args.size() >= 3) {
 	    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		try{ data = stoi(args[2]); } catch(const std::exception&) GotoError("", 0);
 
-	    err = SCRSDK::SendCommand(cameraDevice[0].m_device_handle, code, (SCRSDK::CrCommandParam)data);
+	    err = SCRSDK::SendCommand(cameraDevice[currentIndex].m_device_handle, code, (SCRSDK::CrCommandParam)data);
 	    if(err) GotoError("", err);
     }
 Error:
@@ -544,16 +560,16 @@ int controlPTZF(char* inputLine)
     if(args.size() >= 4) try { ptzfSetting.pan.speed= stoi(args[3]); } catch(const std::exception&) { GotoError("invalid input", 0); }
     if(args.size() >= 5) try { ptzfSetting.tilt.speed= stoi(args[4]); } catch(const std::exception&) { GotoError("invalid input", 0); }
 
-    err = SCRSDK::ControlPTZF(cameraDevice[0].m_device_handle, (SCRSDK::CrPTZFControlType)type, &ptzfSetting);
+    err = SCRSDK::ControlPTZF(cameraDevice[currentIndex].m_device_handle, (SCRSDK::CrPTZFControlType)type, &ptzfSetting);
     if(err) GotoError("", err);
 Error:
     return err;
 }
 
-int presetPTZFSet(int32_t index)
+int presetPTZFSet(int32_t preset)
 {
     SCRSDK::CrError err = 0;
-    err = SCRSDK::PresetPTZFSet(cameraDevice[0].m_device_handle, index, SCRSDK::CrPresetPTZFSettingType_current, SCRSDK::CrPresetPTZFThumbnail_Off);
+    err = SCRSDK::PresetPTZFSet(cameraDevice[currentIndex].m_device_handle, preset, SCRSDK::CrPresetPTZFSettingType_current, SCRSDK::CrPresetPTZFThumbnail_Off);
     if(err) PrintError("", err);
     return err;
 }
@@ -568,7 +584,7 @@ int getLiveview(uint8_t** lv_image, CrInt32u* lv_size)
     SCRSDK::CrImageDataBlock image_data;
     CrInt32u bufSize = 0;
     CrInt8u* image_buff = nullptr;
-    int64_t  m_device_handle = cameraDevice[0].m_device_handle;
+    int64_t  m_device_handle = cameraDevice[currentIndex].m_device_handle;
 
     err = SCRSDK::GetLiveViewProperties(m_device_handle, &property, &num);  if(err) GotoError("", err);
     SCRSDK::ReleaseLiveViewProperties(m_device_handle, property);
