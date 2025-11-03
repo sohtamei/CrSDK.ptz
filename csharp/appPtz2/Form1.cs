@@ -1,11 +1,12 @@
 using HidSharp.Reports;
 using OpenMacroBoard.SDK;
-using SharpDX.DirectInput;  
+using SharpDX.DirectInput;
 using StreamDeckSharp;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Drawing.Text;
 using System.IO;
@@ -62,14 +63,18 @@ namespace appPtz2
         private static int BlindZone = 0;
         private static int currentIndex = 0;
 
-        private static bool[] CameraConnected = { false, false, false };
+        private static int[] encButtonLast = new int[4];
+
+        private static bool[] CameraConnected = { false, false, false, false };
+        private static bool[] ndfilterEnabled = { true, true, true, true };
+        private static (int x, int y, int w, int h) picLocation = ( 0, 0, 0, 0 );
 
         enum ButtonIndex
         {
             Default = -1,
             Iris = 0,
             FPS = 1,
-            Gain = 2,
+            ISO = 2,
             Shutter = 3,
             WB = 4,
         };
@@ -77,8 +82,8 @@ namespace appPtz2
 
         private static string[] buttonLabels = new string[] {
             "1","2","Assign1","Assign2","Assign3",
-            "Iris\n","FPS\n","Gain\n0db","Shutter\n1/250","WB\n5600K",
-            "","","Preset1","Preset2","Preset3",
+            "Iris\n","FPS\n","ISO\n0","Shutter\n1/250","WB\n5600K",
+            "3","4","Preset1","Preset2","Preset3",
         };
 
         private static IMacroBoard streamDeck;
@@ -148,8 +153,9 @@ namespace appPtz2
                             case 0: txtConnect0.Text = line; break;
                             case 1: txtConnect1.Text = line; break;
                             case 2: txtConnect2.Text = line; break;
-                            case 3: txtComport.Text = line; break;
-                            case 4: txtBlindZone.Text = line; break;
+                            case 3: txtConnect3.Text = line; break;
+                            case 4: txtComport.Text = line; break;
+                            case 5: txtBlindZone.Text = line; break;
                         }
                     }
                 }
@@ -159,6 +165,31 @@ namespace appPtz2
                 Console.WriteLine("ファイルの読み込み中にエラーが発生しました: " + e.Message);
             }
 
+            picLocation = (picLiveview.Location.X, picLiveview.Location.Y, picLiveview.Size.Width, picLiveview.Size.Height);
+            picLiveview.BringToFront();
+            labelDP.BringToFront();
+        }
+
+        private void Form1_SizeChanged(object sender, EventArgs e)
+        {
+            if(picLocation.h == 0)
+                return;
+            if (this.WindowState == FormWindowState.Maximized)
+            {
+                picLiveview.Location = new Point(60, 0);
+                picLiveview.Size = new Size(this.Width - 90, this.Height - 40);
+                labelDP.Location = new Point(60, this.Height - 80);
+            }
+            else if (this.WindowState == FormWindowState.Normal)
+            {
+                picLiveview.Location = new Point(picLocation.x, picLocation.y);
+                picLiveview.Size = new Size(picLocation.w, picLocation.h);
+                labelDP.Location = new Point(picLocation.x, picLocation.h);
+            }
+            else if (this.WindowState == FormWindowState.Minimized)
+            {
+                Console.WriteLine("最小化されました");
+            }
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -182,6 +213,14 @@ namespace appPtz2
                 case 1:
                     connect = connect1;
                     txtConnect = txtConnect1;
+                    break;
+                case 2:
+                    connect = connect2;
+                    txtConnect = txtConnect2;
+                    break;
+                case 3:
+                    connect = connect3;
+                    txtConnect = txtConnect3;
                     break;
                 default:
                     return;
@@ -224,7 +263,7 @@ namespace appPtz2
                 CameraConnected[index] = false;
 
                 timer.Enabled = false;
-                liveview.Image = null;
+                picLiveview.Image = null;
                 int ret = RemoteCli_disconnect(index);
                 Thread.Sleep(1000);
             }
@@ -246,11 +285,17 @@ namespace appPtz2
             connectX_Click(2);
         }
 
+        private void connect3_Click(object sender, EventArgs e)
+        {
+            connectX_Click(3);
+        }
+
         private void enableConnect(bool enabled)
         {
             connect0.Enabled = enabled;
             connect1.Enabled = enabled;
             connect2.Enabled = enabled;
+            connect3.Enabled = enabled;
         }
 
         [DllImport(DLLPath)]
@@ -260,8 +305,8 @@ namespace appPtz2
         {
             currentIndex = index;
             setCameraIndex(index);
-            liveview.Image = null;
-            OnLiveviewCb(1, currentIndex);
+            picLiveview.Image = null;
+            OnLiveviewCb(1, currentIndex);  // update DP
         }
 
         private void buttonSelect0_Click(object sender, EventArgs e)
@@ -277,6 +322,11 @@ namespace appPtz2
         private void buttonSelect2_Click(object sender, EventArgs e)
         {
             selectX_Click(2);
+        }
+
+        private void buttonSelect3_Click(object sender, EventArgs e)
+        {
+            selectX_Click(3);
         }
 
         [DllImport(DLLPath, CharSet = CharSet.Ansi)]
@@ -374,8 +424,8 @@ namespace appPtz2
 
                             using (MemoryStream ms = new MemoryStream(managedBuffer))
                             {
-                                liveview.Image?.Dispose();
-                                liveview.Image = Image.FromStream(ms);
+                                picLiveview.Image?.Dispose();
+                                picLiveview.Image = Image.FromStream(ms);
                             }
                         }
                         catch (Exception ex)
@@ -408,7 +458,8 @@ namespace appPtz2
         private static void OnTimedEvent(Object source, ElapsedEventArgs e)
         {
             // comport (encoder, joystick)
-            int[] uartData = new int[8];
+            int[] uartData = new int[12];
+            bool uartValid = false;
             if (comport != null)
             {
                 string uartline = comport.ReadExisting();
@@ -421,29 +472,64 @@ namespace appPtz2
                         Console.WriteLine(uartline);
 
                         string[] uartItems = uartline.Split(',');
-                        for(int i = 0; i < Math.Min(8, uartItems.Length); i++)
+                        if (uartItems.Length >= uartData.Length)
                         {
-                            uartData[i] = int.Parse(uartItems[i]);
+                            uartValid = true;
+                            for (int i = 0; i < uartData.Length; i++)
+                            {
+                                uartData[i] = int.Parse(uartItems[i]);
+                            }
+                            for (int i = 0; i < 4; i++)
+                            {
+                                if (Math.Abs(uartData[4 + i]) < BlindZone) uartData[4 + i] = 0;
+                            }
                         }
- 
-			            for (int i = 0; i < 4; i++) {
-			                if (Math.Abs(uartData[4+i]) < BlindZone) uartData[4+i] = 0;
-			            }
-                   }
+                    }
                 }
             }
 
-            // encoder
-			{
-	            string[] DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"GaindBValue", currentIndex == 0 ? $"ShutterSpeedValue" : $"ShutterSpeed", $"Colortemp" };
-				for (int i = 0; i < 4; i++)
-				{
+            if (uartValid)
+            {
+                // encoder
+                string[] DPTable;
+                if (currentIndex == 0 || currentIndex == 3)
+                {
+                    DPTable = new string[4] { $"IsoSensitivity", $"ShutterSpeedValue", $"NDFilterValue", $"Colortemp" };
+                }
+                else
+                {
+                    DPTable = new string[4] { $"IsoSensitivity", $"ShutterSpeed", $"NDFilterValue", $"Colortemp" };
+                }
+                for (int i = 0; i < 4; i++)
+                {
                     if (uartData[i] != 0)
                     {
-                        incDeviceProperty(DPTable[i], uartData[i], true);
+                        if (currentIndex == 0 && i == 3)    // PTZ WB
+                            incDeviceProperty(DPTable[i], uartData[i] * 100, true);
+                        else
+                            incDeviceProperty(DPTable[i], uartData[i], true);
                     }
                 }
-			}
+
+                // encoder button
+                for (int i = 0; i < 4; i++)
+                {
+                    if (encButtonLast[i] == 1 && uartData[8 + i] == 0)
+                    {
+                        switch (i)
+                        {
+                            case 2:
+                                ndfilterEnabled[currentIndex] = !ndfilterEnabled[currentIndex];
+                                setDeviceProperty($"NDFilter", ndfilterEnabled[currentIndex] ? 2 : 1, false/*blocking*/);
+                                break;
+                            case 3:
+                                setDeviceProperty($"Colortemp", 5600, false/*blocking*/);
+                                break;
+                        }
+                    }
+                    encButtonLast[i] = uartData[8 + i];
+                }
+            }
 
             joystick.Poll();
             var state = joystick.GetCurrentState();
@@ -455,11 +541,16 @@ namespace appPtz2
                 if (Math.Abs(xy[i]) < BlindZone) xy[i] = 0;
             }
 
-			if(uartData[4+1] != 0 || uartData[4+2] != 0 || uartData[4+3] != 0) {
-	            for (int i = 0; i < 4; i++) {
-					xy[i] = -uartData[4+i];
-				}
-			}
+            if (uartValid)
+            {
+                if (uartData[4 + 1] != 0 || uartData[4 + 2] != 0 || uartData[4 + 3] != 0)
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        xy[i] = -uartData[4 + i];
+                    }
+                }
+            }
             if (Math.Abs(xyLast[2] - xy[2]) > 2000 || Math.Abs(xyLast[3] - xy[3]) > 2000) {
                 int pan = -(int)(xy[2] * SPEED_MAX / 32768.0);
                 pan = Math.Min(SPEED_MAX, Math.Max(-SPEED_MAX, pan));
@@ -474,12 +565,16 @@ namespace appPtz2
             {
                 int zoom = -xy[1];
                 zoom = Math.Min(32767, Math.Max(-32767, zoom));
-
-                setDeviceProperty("ZoomOperationWithInt16", zoom, false/*blocking*/);
+                if(currentIndex == 0) {
+                    setDeviceProperty("ZoomOperationWithInt16", zoom, false/*blocking*/);
+                } else
+                {
+                    setDeviceProperty("Zoom_Operation", (long)(zoom/(32768/8)), false/*blocking*/);
+                }
             }
             for (int i = 0; i < 4; i++) { xyLast[i] = xy[i]; }
 
-            // button
+            // joystick button
             string str = "";
             for (int i = 0; i < 12; i++)
             {
@@ -562,7 +657,7 @@ namespace appPtz2
             Int32 numerator = 0;
             Int32 denominator = 0;
 
-            if(currentIndex == 0)
+            if(currentIndex == 0 || currentIndex == 3)
             {
                 shutter_speed = getDeviceProperty($"ShutterSpeedValue");
                 numerator = (Int32)((shutter_speed >> 32) & 0xFFFFFFFF);
@@ -638,20 +733,31 @@ namespace appPtz2
         {
             string str = "";
             Int64 data;
-            data = getDeviceProperty($"FNumber");
-            str += $"Iris={format_f_number(data)}    ";
+            if (CameraConnected[currentIndex])
+            {
+                data = getDeviceProperty($"NDFilter");
+                if (data != 0) {
+                    ndfilterEnabled[currentIndex] = (data == 2 ? true : false);
+                }
 
-            data = getDeviceProperty($"SQFrameRate");
-            str += $"FPS={data}    ";
+                data = getDeviceProperty($"IsoSensitivity");
+                if (data == 0x00FFFFFF)
+                    str += $"ISO=AUTO    ";
+                else
+                    str += $"ISO={data}    ";
 
-            data = getDeviceProperty($"GaindBValue");
-            str += $"Gain={data}db    ";
+                str += $"Shutter={format_shutter_speed()}    ";
 
-            str += $"Shutter={format_shutter_speed()}    ";
+                data = getDeviceProperty($"NDFilterValue");
+                str += $"ND={data >> 32}/{data & 0xFFFFFFFF}    ";
 
-            data = getDeviceProperty($"Colortemp");
-            str += $"WB={data}K";
-            labelDP.Text = str;
+                data = getDeviceProperty($"Colortemp");
+                str += $"WB={data}K";
+                labelDP.Text = str;
+            } else
+            {
+                labelDP.Text = "---";
+            }
 
             if (streamDeck == null)
                 return;
@@ -664,8 +770,11 @@ namespace appPtz2
                 data = getDeviceProperty($"SQFrameRate");
                 buttonLabels[5 + (int)ButtonIndex.FPS] = $"FPS\n{data}";
 
-                data = getDeviceProperty($"GaindBValue");
-                buttonLabels[5 + (int)ButtonIndex.Gain] = $"Gain\n{data}db";
+                data = getDeviceProperty($"IsoSensitivity");
+                if (data == 0x00FFFFFF)
+                    buttonLabels[5 + (int)ButtonIndex.ISO] = $"ISO\nAUTO";
+                else
+                    buttonLabels[5 + (int)ButtonIndex.ISO] = $"ISO\n{data}";
 
                 buttonLabels[5+(int)ButtonIndex.Shutter] = $"Shutter\n{format_shutter_speed()}";
 
@@ -685,7 +794,7 @@ namespace appPtz2
                     break;
                 case ButtonIndex.Iris:
                 case ButtonIndex.FPS:
-                case ButtonIndex.Gain:
+                case ButtonIndex.ISO:
                 case ButtonIndex.Shutter:
                 case ButtonIndex.WB:
                     _labels[0 + (int)page] = $"↑";
@@ -724,7 +833,15 @@ namespace appPtz2
             Console.WriteLine($"Key {e.Key} {(e.IsDown ? $"DOWN" : $"UP")}");
             if (!e.IsDown) return;
 
-            string[] DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"GaindBValue", currentIndex == 0 ? $"ShutterSpeedValue" : $"ShutterSpeed", $"Colortemp" };
+            string[] DPTable;
+            if (currentIndex == 0 || currentIndex == 3)
+            {
+                DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"IsoSensitivity", $"ShutterSpeedValue", $"Colortemp" };
+            }
+            else
+            {
+                DPTable = new string[5] { $"FNumber", $"SQFrameRate", $"IsoSensitivity", $"ShutterSpeed", $"Colortemp" };
+            }
 
             switch (page)
             {
@@ -755,10 +872,16 @@ namespace appPtz2
                             break;
                         case 5 + (int)ButtonIndex.Iris:
                         case 5 + (int)ButtonIndex.FPS:
-                        case 5 + (int)ButtonIndex.Gain:
+                        case 5 + (int)ButtonIndex.ISO:
                         case 5 + (int)ButtonIndex.Shutter:
                         case 5 + (int)ButtonIndex.WB:
                             page = (ButtonIndex)(e.Key - 5);
+                            break;
+                        case 10 + 0:
+                            selectX_Click(2);
+                            break;
+                        case 10 + 1:
+                            selectX_Click(3);
                             break;
                         case 10 + 2:
                             setDeviceProperty("PresetPTZFSlotNumber", 1, false/*blocking*/);
@@ -776,16 +899,22 @@ namespace appPtz2
                     break;
                 case ButtonIndex.Iris:
                 case ButtonIndex.FPS:
-                case ButtonIndex.Gain:
+                case ButtonIndex.ISO:
                 case ButtonIndex.Shutter:
                 case ButtonIndex.WB:
                     if(e.Key == 0 + (int)page)
                     {
-                        incDeviceProperty(DPTable[(int)page], 1, true);
+                        if (currentIndex == 0 && page == ButtonIndex.WB)
+                            incDeviceProperty(DPTable[(int)page], 100, true);
+                        else
+                            incDeviceProperty(DPTable[(int)page], 1, true);
                     }
                     else if (e.Key == 10 + (int)page)
                     {
-                        incDeviceProperty(DPTable[(int)page], -1, true);
+                        if (currentIndex == 0 && page == ButtonIndex.WB)
+                            incDeviceProperty(DPTable[(int)page], -100, true);
+                        else
+                            incDeviceProperty(DPTable[(int)page], -1, true);
                     }
                     else
                     {

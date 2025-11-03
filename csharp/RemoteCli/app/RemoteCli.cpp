@@ -312,11 +312,11 @@ public:
 };
 
 
-CameraDevice cameraDevice[3];
+CameraDevice cameraDevice[4];
 
 void RegisterLiveviewCb(LiveviewCbFunc liveviewCb)
 {
-	for(int i = 0; i < 3; i++) {
+	for(int i = 0; i < 4; i++) {
 		cameraDevice[i].RegisterLiveviewCb(liveviewCb);
 		cameraDevice[i].m_index = i;
 	}
