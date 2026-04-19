@@ -25,12 +25,12 @@ namespace appPtz2
 {
     public partial class Form1 : Form
     {
-        class DPConv
+/*      class DPConv
         {
             public int index { get; set; }
             public string str { get; set; }
         }
-
+*/
         const string DLLPath = "RemoteCli.dll";
 
         [DllImport(DLLPath)]
@@ -144,7 +144,7 @@ namespace appPtz2
             {
                 using (StreamReader reader = new StreamReader("config.txt"))
                 {
-                    for(int i = 0;i < 5; i++)
+                    for(int i = 0;i < 6; i++)
                     {
                         string line = reader.ReadLine();
                         if (line == null) break;
